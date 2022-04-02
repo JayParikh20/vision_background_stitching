@@ -5,7 +5,6 @@
 
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 import json
 
 # TODO remove
@@ -25,49 +24,73 @@ def stitch(imgmark, N=4, savepath=''):  # For bonus: change your input(N=*) here
     "Start you code here"
 
     sift = cv2.xfeatures2d.SIFT_create()
-    bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
-    kps = []
-    descriptors = []
-    output_height = 0
-    output_width = 0
+    output_img = imgs[0]
 
-    for index, img in enumerate(imgs):
-        img = np.array(img)
-        output_height += img.shape[0]
-        output_width += img.shape[1]
-        # cv2.imshow("test", img)
-        # cv2.waitKey(0)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        kp, des = sift.detectAndCompute(gray, None)
-        kps.append(kp)
-        descriptors.append(des)
+    for i in range(1, N):
+        gray1 = cv2.cvtColor(output_img, cv2.COLOR_BGR2GRAY)
+        kps1, des1 = sift.detectAndCompute(gray1, None)
+        gray2 = cv2.cvtColor(imgs[i], cv2.COLOR_BGR2GRAY)
+        kps2, des2 = sift.detectAndCompute(gray2, None)
 
-    for i in range(N):
-        for j in range(N):
-            if (i == j):
-                continue
-            matches = bf.match(descriptors[i], descriptors[j])[:1000]
-            matches = sorted(matches, key=lambda x: x.distance)
-            print(f"matches with kp {i + 1}: ", np.round((len(matches) / len(descriptors[i])) * 100))
-            print(f"matches with kp {j + 1}: ", np.round((len(matches) / len(descriptors[j])) * 100))
-            # print("matches:", len(matches), (j + 1, i + 1))
-            kps1 = np.float32([kp.pt for kp in kps[i]])
-            kps2 = np.float32([kp.pt for kp in kps[j]])
-            pts1 = np.float32([kps1[m.queryIdx] for m in matches])
-            pts2 = np.float32([kps2[m.trainIdx] for m in matches])
-            (H, status) = cv2.findHomography(pts1, pts2, cv2.RANSAC, 5.0)
-            print(np.round(H, decimals=2))
-            result = cv2.warpPerspective(imgs[i], H, (imgs[i].shape[1] + imgs[j].shape[1], imgs[i].shape[0] + imgs[j].shape[0]), borderMode=cv2.BORDER_CONSTANT,
-                                         borderValue=(0, 0, 0, 0))
-            # print(np.round(H))
-            # result[0:imgs[i].shape[0], 0:imgs[i].shape[1]] = imgs[i]
-            # result[0:imgs[j].shape[0], 0:imgs[j].shape[1]] = imgs[j]
-            cv2.imshow("test", result)
-            cv2.waitKey(0)
+        # matches = bf.match(des1, des2)
+        # matches = sorted(matches, key=lambda x: x.distance)
+        # print(np.column_stack((np.array([m.queryIdx for m in matches[0:20]]), np.array([m.trainIdx for m in matches[0:20]]))))
+
+        best_matches = []
+        for queryIdx, queryMatrix in enumerate(des1):
+            min_dist = np.inf
+            best_indices = [0, 0]
+            for trainIdx, trainMatrix in enumerate(des2):
+                distance = np.linalg.norm(queryMatrix - trainMatrix)
+                if(distance < min_dist):
+                    min_dist = distance
+                    best_indices = [queryIdx, trainIdx, distance]
+            best_matches.append(best_indices)
+        best_matches = sorted(best_matches, key=lambda x: x[2])[0:400]
+
+        kp_pts1 = np.float32([kp.pt for kp in kps1])
+        kp_pts2 = np.float32([kp.pt for kp in kps2])
+        pts1 = np.float32([kp_pts1[m[0]] for m in best_matches]).reshape(-1, 1, 2)
+        pts2 = np.float32([kp_pts2[m[1]] for m in best_matches]).reshape(-1, 1, 2)
+
+        (H, status) = cv2.findHomography(pts1, pts2, cv2.RANSAC, 5.0)
+        rot_matrix = np.array(np.round(H, decimals=1))[:2, :2]
+        # print(rot_matrix)
+
+        # Checks if elements follow rotation matrix sin cos sequence
+        rot_matrix_0011 = np.abs(rot_matrix[0, 0]) == np.abs(rot_matrix[1, 1])
+        rot_matrix_0110 = np.abs(rot_matrix[0, 1]) == np.abs(rot_matrix[1, 0])
+        if (not (rot_matrix_0011 and rot_matrix_0110)):
+            print(f"Stitched Image and Image{i} could not match, skipping!")
+            continue
+
+        output_img = warpTwoImages(imgs[i], output_img,  H)
+        cv2.imshow("test", output_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     overlap_arr = np.array([])
     return overlap_arr
+
+
+def warpTwoImages(img1, img2, H):
+    """  warp img2 to img1 with homograph H  """
+    h1, w1 = img1.shape[:2]
+    h2, w2 = img2.shape[:2]
+    pts1 = np.float32([[0, 0], [0, h1], [w1, h1], [w1, 0]]).reshape(-1, 1, 2)
+    pts2 = np.float32([[0, 0], [0, h2], [w2, h2], [w2, 0]]).reshape(-1, 1, 2)
+    pts2_ = cv2.perspectiveTransform(pts2, H)
+    pts = np.concatenate((pts1, pts2_), axis=0)
+    [xmin, ymin] = np.int32(np.min(pts, axis=0).ravel() - 0.5)
+    [xmax, ymax] = np.int32(np.max(pts, axis=0).ravel() + 0.5)
+    t = [-xmin, -ymin]
+    Ht = np.array([[1, 0, t[0]], [0, 1, t[1]], [0, 0, 1]])  # translate
+
+    result = cv2.warpPerspective(img2, Ht.dot(H), (xmax - xmin, ymax - ymin))
+    result[t[1]:h1 + t[1], t[0]:w1 + t[0]] = img1
+    return result
 
 
 if __name__ == "__main__":
