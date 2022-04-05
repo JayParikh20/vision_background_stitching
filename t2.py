@@ -6,6 +6,7 @@
 import cv2
 import numpy as np
 import json
+import matplotlib.pyplot as plt
 
 # TODO remove
 np.set_printoptions(suppress=True)
@@ -24,7 +25,7 @@ def stitch(imgmark, N=4, savepath=''):  # For bonus: change your input(N=*) here
     "Start you code here"
 
     sift = cv2.xfeatures2d.SIFT_create()
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    # bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
 
     output_img = imgs[0]
 
@@ -66,31 +67,26 @@ def stitch(imgmark, N=4, savepath=''):  # For bonus: change your input(N=*) here
             print(f"Stitched Image and Image{i} could not match, skipping!")
             continue
 
-        output_img = warpTwoImages(imgs[i], output_img,  H)
-        cv2.imshow("test", output_img)
+        # output_img = warpTwoImages(imgs[i], output_img,  H)
+        h1, w1 = imgs[i].shape[0], imgs[i].shape[1]
+        h2, w2 = output_img.shape[0], output_img.shape[1]
+        pts1 = np.float32([[0, 0], [0, h1], [w1, h1], [w1, 0]]).reshape(-1, 1, 2)
+        pts2 = np.float32([[0, 0], [0, h2], [w2, h2], [w2, 0]]).reshape(-1, 1, 2)
+        pts2 = cv2.perspectiveTransform(pts2, H)
+        pts = np.concatenate((pts1, pts2), axis=0)
+        [xmin, ymin] = np.int32(np.min(pts, axis=0).ravel() - 0.5)
+        [xmax, ymax] = np.int32(np.max(pts, axis=0).ravel() + 0.5)
+        t = [-xmin, -ymin]
+        Ht = np.array([[1, 0, t[0]], [0, 1, t[1]], [0, 0, 1]])  # translate
+
+        output_img = cv2.warpPerspective(output_img, Ht.dot(H), (xmax - xmin, ymax - ymin))
+        output_img[t[1]:h1 + t[1], t[0]:w1 + t[0]] = imgs[i]
+        cv2.imshow("output", output_img)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
     overlap_arr = np.array([])
     return overlap_arr
-
-
-def warpTwoImages(img1, img2, H):
-    """  warp img2 to img1 with homograph H  """
-    h1, w1 = img1.shape[:2]
-    h2, w2 = img2.shape[:2]
-    pts1 = np.float32([[0, 0], [0, h1], [w1, h1], [w1, 0]]).reshape(-1, 1, 2)
-    pts2 = np.float32([[0, 0], [0, h2], [w2, h2], [w2, 0]]).reshape(-1, 1, 2)
-    pts2_ = cv2.perspectiveTransform(pts2, H)
-    pts = np.concatenate((pts1, pts2_), axis=0)
-    [xmin, ymin] = np.int32(np.min(pts, axis=0).ravel() - 0.5)
-    [xmax, ymax] = np.int32(np.max(pts, axis=0).ravel() + 0.5)
-    t = [-xmin, -ymin]
-    Ht = np.array([[1, 0, t[0]], [0, 1, t[1]], [0, 0, 1]])  # translate
-
-    result = cv2.warpPerspective(img2, Ht.dot(H), (xmax - xmin, ymax - ymin))
-    result[t[1]:h1 + t[1], t[0]:w1 + t[0]] = img1
-    return result
 
 
 if __name__ == "__main__":
