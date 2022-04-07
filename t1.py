@@ -21,7 +21,7 @@ def stitch_background(img1, img2, savepath=''):
 
     bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
     matches = bf.match(des1, des2)
-    best_matches = sorted(matches, key=lambda x: x.distance)[0:400]
+    best_matches = sorted(matches, key=lambda x: x.distance)[0:len(matches)//3]
 
     kp_pts1 = np.float32([kp.pt for kp in kps1])
     kp_pts2 = np.float32([kp.pt for kp in kps2])
