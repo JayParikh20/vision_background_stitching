@@ -17,12 +17,7 @@ def stitch_background(img1, img2, savepath=''):
     gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
 
     kps1, des1 = sift.detectAndCompute(gray1, None)
-    # gray1_kps = cv2.drawKeypoints(gray1, kps1, gray1)
-    # cv2.imwrite('img1_kps.jpg', gray1_kps)
-
     kps2, des2 = sift.detectAndCompute(gray2, None)
-    # gray2_kps = cv2.drawKeypoints(gray2, kps2, gray2)
-    # cv2.imwrite('img2_kps.jpg', gray2_kps)
 
     bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
     matches = bf.match(des1, des2)
@@ -52,37 +47,36 @@ def stitch_background(img1, img2, savepath=''):
 
     (H, status) = cv2.findHomography(pts1, pts2, cv2.RANSAC, 5.0)
 
-    h1, w1 = img2.shape[0], img2.shape[1]
-    h2, w2 = img1.shape[0], img1.shape[1]
-    pts1 = np.float32([[0, 0], [0, h1], [w1, h1], [w1, 0]]).reshape(-1, 1, 2)
-    pts2 = np.float32([[0, 0], [0, h2], [w2, h2], [w2, 0]]).reshape(-1, 1, 2)
-    # plt.plot(pts2.squeeze()[:, 0], pts2.squeeze()[:, 1], "bx")
-    # H_pt = []
-    # for ptx, pty in pts2.squeeze():
-    #     new_pt = np.dot(H, np.array([[ptx], [pty], [1]]))
-    #     print("H_pt:", new_pt)
-    #     new_pt[0, 0] = new_pt[0, 0] / new_pt[2, 0]
-    #     new_pt[1, 0] = new_pt[1, 0] / new_pt[2, 0]
-    #     new_pt[2, 0] = new_pt[2, 0] / new_pt[2, 0]
-    #     print("H_pt new:", new_pt)
-    #     H_pt.append(new_pt)
-    # H_pt = np.array(H_pt)
-    # print(H_pt)
-    # plt.plot(H_pt[:, 0], H_pt[:, 1], "go")
-    pts2 = cv2.perspectiveTransform(pts2, H)
-    # plt.plot(pts2.squeeze()[:, 0], pts2.squeeze()[:, 1], "rp")
-    # plt.show(block=False)
-    pts = np.concatenate((pts1, pts2), axis=0)
-    print(pts.shape)
+    img1_shape = img1.shape[0:2]  # src
+    img2_shape = img2.shape[0:2]  # des
 
-    [xmin, ymin] = np.int32(np.min(pts, axis=0).ravel() - 0.5)
-    [xmax, ymax] = np.int32(np.max(pts, axis=0).ravel() + 0.5)
-    t = [-xmin, -ymin]
-    Ht = np.array([[1, 0, t[0]], [0, 1, t[1]], [0, 0, 1]])  # translate
+    unwarped_bounds = np.array([[0, 0], [img1_shape[1], 0], [0, img1_shape[0]], [img1_shape[1], img1_shape[0]]])
+    homogenous_unwarped_bounds = []
+    for x, y in unwarped_bounds:
+        homogenous_unwarped_bounds.append([x, y, 1])
+    homogenous_unwraped_bound = np.array(homogenous_unwarped_bounds).squeeze()
+    homogeneous_warped_bounds = []
+    for x, y, z in homogenous_unwraped_bound:
+        homogeneous_warped_bounds.append(np.dot(H, np.array([[x], [y], [z]])).T)
+    homogeneous_warped_bounds = np.array(homogeneous_warped_bounds).squeeze()
+    warped_bounds = []
+    for x, y, z in homogeneous_warped_bounds:
+        warped_bounds.append([x/z, y/z])
+    warped_bounds = np.array(warped_bounds).squeeze()
+    min_warped_bounds = np.min(warped_bounds, axis=0)
+    max_warped_bounds = np.max(warped_bounds, axis=0)
 
-    transformed_img1 = cv2.warpPerspective(img1, Ht.dot(H), (xmax - xmin, ymax - ymin))
-    merged_img = transformed_img1.copy()
-    merged_img[t[1]:h1 + t[1], t[0]:w1 + t[0]] = img2
+    des_bounds = np.array([[0, 0], [img2_shape[1], 0], [0, img2_shape[0]], [img2_shape[1], img2_shape[0]]])
+    min_des_bounds = np.min(des_bounds, axis=0)
+    max_des_bounds = np.max(des_bounds, axis=0)
+
+    min_output_bounds = (np.min([min_warped_bounds[0], min_des_bounds[0]]), np.min([min_warped_bounds[1], min_des_bounds[1]]))
+    max_output_bounds = (np.max([max_warped_bounds[0], max_des_bounds[0]]), np.max([max_warped_bounds[1], max_des_bounds[1]]))
+
+    offset = np.array([[1, 0, -min_output_bounds[0]], [0, 1, -min_output_bounds[1]], [0, 0, 1]])
+    transformed_img = cv2.warpPerspective(img1, np.dot(offset, H), (round(max_output_bounds[0] - min_output_bounds[0]), round(max_output_bounds[1] - min_output_bounds[1])))
+    merged_img = transformed_img.copy()
+    merged_img[int(offset[1, 2]): img2_shape[0] + int(offset[1, 2]), int(offset[0, 2]): img2_shape[1] + int(offset[0, 2])] = img2
 
     # finding intersected area of two images
     bw1 = np.zeros(gray1.shape, dtype=np.uint8)
@@ -90,10 +84,10 @@ def stitch_background(img1, img2, savepath=''):
     bw2 = np.zeros(gray2.shape, dtype=np.uint8)
     bw2.fill(1)
 
-    merged_bw = cv2.warpPerspective(bw1, Ht.dot(H), (xmax - xmin, ymax - ymin))
-    merged_bw[t[1]:h1 + t[1], t[0]:w1 + t[0]] = merged_bw[t[1]:h1 + t[1], t[0]:w1 + t[0]] + bw2
+    merged_bw = cv2.warpPerspective(bw1, np.dot(offset, H), (round(max_output_bounds[0] - min_output_bounds[0]), round(max_output_bounds[1] - min_output_bounds[1])))
+    merged_bw[int(offset[1, 2]): img2_shape[0] + int(offset[1, 2]), int(offset[0, 2]): img2_shape[1] + int(offset[0, 2])] = merged_bw[int(offset[1, 2]): img2_shape[0] + int(offset[1, 2]), int(offset[0, 2]): img2_shape[1] + int(offset[0, 2])] + bw2
 
-    cropped_img1 = transformed_img1.copy()
+    cropped_img1 = transformed_img.copy()
     cropped_img1[np.where(merged_bw != 2)] = 0
     cropped_merged_img = merged_img.copy()
     cropped_merged_img[np.where(merged_bw != 2)] = 0
@@ -114,14 +108,13 @@ def stitch_background(img1, img2, savepath=''):
     # Removing parts that are not needed
     cropped_img1[cleaned_mask == 0] = 0
     merged_img[cleaned_mask != 0] = 0
-    added_image = cv2.add(cropped_img1, merged_img)
+    output_img = cv2.add(cropped_img1, merged_img)
 
-    cv2.imshow("output1", cleaned_mask)
-    cv2.imshow("output2", cropped_img1)
-    cv2.imshow("output3", added_image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    cv2.imwrite(savepath, output_img)
 
+    # cv2.imshow("output", output_img)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
     return
 
 
