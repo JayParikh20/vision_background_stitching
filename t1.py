@@ -74,9 +74,9 @@ def stitch_background(img1, img2, savepath=''):
     max_output_bounds = (np.max([max_warped_bounds[0], max_des_bounds[0]]), np.max([max_warped_bounds[1], max_des_bounds[1]]))
 
     offset = np.array([[1, 0, -min_output_bounds[0]], [0, 1, -min_output_bounds[1]], [0, 0, 1]])
-    transformed_img = cv2.warpPerspective(img1, np.dot(offset, H), (round(max_output_bounds[0] - min_output_bounds[0]), round(max_output_bounds[1] - min_output_bounds[1])))
-    merged_img = transformed_img.copy()
-    merged_img[int(offset[1, 2]): img2_shape[0] + int(offset[1, 2]), int(offset[0, 2]): img2_shape[1] + int(offset[0, 2])] = img2
+    transformed_img1 = cv2.warpPerspective(img1, np.dot(offset, H), (round(max_output_bounds[0] - min_output_bounds[0]), round(max_output_bounds[1] - min_output_bounds[1])))
+    merged_img1 = transformed_img1.copy()
+    merged_img1[int(offset[1, 2]): img2_shape[0] + int(offset[1, 2]), int(offset[0, 2]): img2_shape[1] + int(offset[0, 2])] = img2
 
     # finding intersected area of two images
     bw1 = np.zeros(gray1.shape, dtype=np.uint8)
@@ -87,9 +87,9 @@ def stitch_background(img1, img2, savepath=''):
     merged_bw = cv2.warpPerspective(bw1, np.dot(offset, H), (round(max_output_bounds[0] - min_output_bounds[0]), round(max_output_bounds[1] - min_output_bounds[1])))
     merged_bw[int(offset[1, 2]): img2_shape[0] + int(offset[1, 2]), int(offset[0, 2]): img2_shape[1] + int(offset[0, 2])] = merged_bw[int(offset[1, 2]): img2_shape[0] + int(offset[1, 2]), int(offset[0, 2]): img2_shape[1] + int(offset[0, 2])] + bw2
 
-    cropped_img1 = transformed_img.copy()
+    cropped_img1 = transformed_img1.copy()
     cropped_img1[np.where(merged_bw != 2)] = 0
-    cropped_merged_img = merged_img.copy()
+    cropped_merged_img = merged_img1.copy()
     cropped_merged_img[np.where(merged_bw != 2)] = 0
 
     # Subtracting common img1 part from common merged image
@@ -100,15 +100,15 @@ def stitch_background(img1, img2, savepath=''):
     # Eroding and dilating pixels, removes small differences and dilates major ones
     kernel_erode = np.ones((5, 5), np.uint8)
     kernel_dilate = np.ones((15, 15), np.uint8)
-    img_erosion = cv2.erode(diff_mask, kernel_erode, iterations=1)
-    img_dilation = cv2.dilate(img_erosion, kernel_dilate, iterations=5)
-    img_dilation[np.where(merged_bw != 2)] = 0
-    ret, cleaned_mask = cv2.threshold(img_dilation, 0, 255, cv2.THRESH_BINARY)
+    eroded_diff_mask = cv2.erode(diff_mask, kernel_erode, iterations=1)
+    dilated_diff_mask = cv2.dilate(eroded_diff_mask, kernel_dilate, iterations=5)
+    dilated_diff_mask[np.where(merged_bw != 2)] = 0
+    ret, cleaned_mask = cv2.threshold(dilated_diff_mask, 0, 255, cv2.THRESH_BINARY)
 
     # Removing parts that are not needed
     cropped_img1[cleaned_mask == 0] = 0
-    merged_img[cleaned_mask != 0] = 0
-    output_img = cv2.add(cropped_img1, merged_img)
+    merged_img1[cleaned_mask != 0] = 0
+    output_img = cv2.add(cropped_img1, merged_img1)
 
     cv2.imwrite(savepath, output_img)
 
