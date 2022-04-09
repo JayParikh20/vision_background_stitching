@@ -19,33 +19,27 @@ def stitch_background(img1, img2, savepath=''):
     kps1, des1 = sift.detectAndCompute(gray1, None)
     kps2, des2 = sift.detectAndCompute(gray2, None)
 
-    bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
-    matches = bf.match(des1, des2)
-    best_matches = sorted(matches, key=lambda x: x.distance)[0:len(matches)//3]
+    print("Matching points.")
+    best_matches = []
+    for queryIdx, queryMatrix in enumerate(des1):
+        min_dist = np.inf
+        best_indices = [0, 0]
+        for trainIdx, trainMatrix in enumerate(des2):
+            distance = np.linalg.norm(queryMatrix - trainMatrix)
+            if (distance < min_dist):
+                min_dist = distance
+                best_indices = [queryIdx, trainIdx, distance]
+        best_matches.append(best_indices)
+    best_matches = sorted(best_matches, key=lambda x: x[2])[0:len(best_matches)//3]
 
     kp_pts1 = np.float32([kp.pt for kp in kps1])
     kp_pts2 = np.float32([kp.pt for kp in kps2])
-    pts1 = np.float32([kp_pts1[m.queryIdx] for m in best_matches]).reshape(-1, 1, 2)
-    pts2 = np.float32([kp_pts2[m.trainIdx] for m in best_matches]).reshape(-1, 1, 2)
-
-    # best_matches = []
-    # for queryIdx, queryMatrix in enumerate(des1):
-    #     min_dist = np.inf
-    #     best_indices = [0, 0]
-    #     for trainIdx, trainMatrix in enumerate(des2):
-    #         distance = np.linalg.norm(queryMatrix - trainMatrix)
-    #         if (distance < min_dist):
-    #             min_dist = distance
-    #             best_indices = [queryIdx, trainIdx, distance]
-    #     best_matches.append(best_indices)
-    # best_matches = sorted(best_matches, key=lambda x: x[2])[0:400]
-    #
-    # kp_pts1 = np.float32([kp.pt for kp in kps1])
-    # kp_pts2 = np.float32([kp.pt for kp in kps2])
-    # pts1 = np.float32([kp_pts1[m[0]] for m in best_matches]).reshape(-1, 1, 2)
-    # pts2 = np.float32([kp_pts2[m[1]] for m in best_matches]).reshape(-1, 1, 2)
+    pts1 = np.float32([kp_pts1[m[0]] for m in best_matches]).reshape(-1, 1, 2)
+    pts2 = np.float32([kp_pts2[m[1]] for m in best_matches]).reshape(-1, 1, 2)
 
     (H, status) = cv2.findHomography(pts1, pts2, cv2.RANSAC, 5.0)
+
+    print("Removing foreground.")
 
     img1_shape = img1.shape[0:2]  # src
     img2_shape = img2.shape[0:2]  # des
@@ -111,7 +105,7 @@ def stitch_background(img1, img2, savepath=''):
     output_img = cv2.add(cropped_img1, merged_img1)
 
     cv2.imwrite(savepath, output_img)
-
+    print(f"Image {savepath} saved!")
     # cv2.imshow("output", output_img)
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()

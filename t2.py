@@ -43,30 +43,26 @@ def stitch(imgmark, N=4, savepath=''):  # For bonus: change your input(N=*) here
         kps1, des1 = sift.detectAndCompute(gray1, None)
         kps2, des2 = sift.detectAndCompute(gray2, None)
 
-        matches = bf.match(des1, des2)
-        best_matches = sorted(matches, key=lambda x: x.distance)[0:len(matches)//3]
+        if(index == 1 and append_if_skip):
+            print(f"Matching points for {imgmark}_{1}.png and {imgmark}_{index + 1}.png.")
+        else:
+            print(f"Matching points for stitched image and {imgmark}_{index + 1}.png.")
+        best_matches = []
+        for queryIdx, queryMatrix in enumerate(des1):
+            min_dist = np.inf
+            best_indices = [0, 0]
+            for trainIdx, trainMatrix in enumerate(des2):
+                distance = np.linalg.norm(queryMatrix - trainMatrix)
+                if (distance < min_dist):
+                    min_dist = distance
+                    best_indices = [queryIdx, trainIdx, distance]
+            best_matches.append(best_indices)
+        best_matches = sorted(best_matches, key=lambda x: x[2])[0:len(best_matches)//3]
 
         kp_pts1 = np.float32([kp.pt for kp in kps1])
         kp_pts2 = np.float32([kp.pt for kp in kps2])
-        pts1 = np.float32([kp_pts1[m.queryIdx] for m in best_matches]).reshape(-1, 1, 2)
-        pts2 = np.float32([kp_pts2[m.trainIdx] for m in best_matches]).reshape(-1, 1, 2)
-
-        # best_matches = []
-        # for queryIdx, queryMatrix in enumerate(des1):
-        #     min_dist = np.inf
-        #     best_indices = [0, 0]
-        #     for trainIdx, trainMatrix in enumerate(des2):
-        #         distance = np.linalg.norm(queryMatrix - trainMatrix)
-        #         if (distance < min_dist):
-        #             min_dist = distance
-        #             best_indices = [queryIdx, trainIdx, distance]
-        #     best_matches.append(best_indices)
-        # best_matches = sorted(best_matches, key=lambda x: x[2])[0:400]
-        #
-        # kp_pts1 = np.float32([kp.pt for kp in kps1])
-        # kp_pts2 = np.float32([kp.pt for kp in kps2])
-        # pts1 = np.float32([kp_pts1[m[0]] for m in best_matches]).reshape(-1, 1, 2)
-        # pts2 = np.float32([kp_pts2[m[1]] for m in best_matches]).reshape(-1, 1, 2)
+        pts1 = np.float32([kp_pts1[m[0]] for m in best_matches]).reshape(-1, 1, 2)
+        pts2 = np.float32([kp_pts2[m[1]] for m in best_matches]).reshape(-1, 1, 2)
 
         (H, status) = cv2.findHomography(pts1, pts2, cv2.RANSAC, 5.0)
         rot_matrix = np.array(np.round(H, decimals=1))[:2, :2]
